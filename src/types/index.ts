@@ -17,10 +17,10 @@ export interface ExpenseDetails {
   propertyTaxAnnual: number;
   insuranceAnnual: number;
   hoaMonthly: number;
-  maintenancePercent: number; // % of rent
-  propertyManagementPercent: number; // % of rent
+  maintenancePercent: number;
+  propertyManagementPercent: number;
   utilitiesMonthly: number;
-  capexReservePercent: number; // % of rent for capital expenditures
+  capexReservePercent: number;
 }
 
 export interface ClosingCosts {
@@ -35,41 +35,29 @@ export interface ClosingCosts {
 }
 
 export interface CalculatedMetrics {
-  // Loan Details
   loanAmount: number;
   downPaymentAmount: number;
   monthlyMortgagePayment: number;
-
-  // Income
   grossMonthlyIncome: number;
-  effectiveGrossIncome: number; // After vacancy
+  effectiveGrossIncome: number;
   annualGrossIncome: number;
-
-  // Expenses
   totalMonthlyExpenses: number;
   totalAnnualExpenses: number;
-
-  // Cash Flow
   monthlyNetOperatingIncome: number;
   annualNetOperatingIncome: number;
   monthlyCashFlow: number;
   annualCashFlow: number;
-
-  // Closing Costs
   totalClosingCosts: number;
-  totalCashNeeded: number; // Down payment + closing costs
-
-  // Investment Metrics
+  totalCashNeeded: number;
   capRate: number;
   cashOnCashReturn: number;
   debtServiceCoverageRatio: number;
   grossRentMultiplier: number;
   breakEvenRatio: number;
-
-  // Return Analysis
   totalROI: number;
   monthlyPrincipalPayment: number;
   monthlyInterestPayment: number;
+  monthlyPITIA: number; // Principal, Interest, Taxes, Insurance, HOA
 }
 
 export interface AffordabilityAssessment {
@@ -81,6 +69,72 @@ export interface AffordabilityAssessment {
   warnings: string[];
 }
 
+// New types for enhancements
+
+export interface BorrowerProfile {
+  creditScore: number;
+  numberOfFinancedProperties: number;
+  liquidAssets: number;
+  annualIncome: number;
+  monthlyDebts: number;
+  isFirstTimeInvestor: boolean;
+  isSelfEmployed: boolean;
+}
+
+export interface ReserveRequirements {
+  monthsRequired: number;
+  monthlyPITIA: number;
+  baseReserveRequired: number;
+  additionalReservePercent: number;
+  additionalReserveRequired: number;
+  totalReserveRequired: number;
+  currentLiquidAssets: number;
+  reserveShortfall: number;
+  meetsRequirements: boolean;
+}
+
+export interface CreditScoreImpact {
+  score: number;
+  tier: 'excellent' | 'good' | 'fair' | 'poor';
+  maxLTV: number;
+  rateAdjustment: number;
+  approvalLikelihood: 'high' | 'medium' | 'low' | 'unlikely';
+  recommendations: string[];
+}
+
+export interface LoanComparison {
+  loanType: 'conventional' | 'dscr' | 'portfolio';
+  name: string;
+  minDownPayment: number;
+  estimatedRate: number;
+  minCreditScore: number;
+  minDSCR: number;
+  maxLTV: number;
+  incomeVerification: boolean;
+  reserveMonths: number;
+  maxProperties: number | 'unlimited';
+  pros: string[];
+  cons: string[];
+  qualifies: boolean;
+  disqualifyReasons: string[];
+}
+
+export interface QualificationChecklistItem {
+  id: string;
+  category: 'documentation' | 'financial' | 'property' | 'credit';
+  label: string;
+  description: string;
+  required: boolean;
+  completed: boolean;
+}
+
+export interface ScenarioAnalysis {
+  name: string;
+  property: PropertyDetails;
+  metrics: CalculatedMetrics;
+  assessment: AffordabilityAssessment;
+}
+
 export interface PropertyAnalysis {
   property: PropertyDetails;
   income: IncomeDetails;
@@ -88,4 +142,8 @@ export interface PropertyAnalysis {
   closingCosts: ClosingCosts;
   metrics: CalculatedMetrics;
   assessment: AffordabilityAssessment;
+  borrower?: BorrowerProfile;
+  reserves?: ReserveRequirements;
+  creditImpact?: CreditScoreImpact;
+  loanComparisons?: LoanComparison[];
 }
