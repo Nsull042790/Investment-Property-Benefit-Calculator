@@ -24,12 +24,14 @@ import {
   ScenarioAnalysis,
   PrintReport,
 } from './components';
+import { ApprovalRoadmap } from './components/ApprovalRoadmap';
 import {
   calculateMetrics,
   generateAssessment,
   calculateReserveRequirements,
   calculateCreditScoreImpact,
   generateLoanComparisons,
+  generateApprovalRoadmap,
 } from './utils/calculations';
 
 // Default values
@@ -110,6 +112,11 @@ function App() {
   const loanComparisons = useMemo(
     () => generateLoanComparisons(property, metrics, borrower),
     [property, metrics, borrower]
+  );
+
+  const approvalRoadmap = useMemo(
+    () => generateApprovalRoadmap(property, income, expenses, metrics, borrower, reserves, creditImpact, loanComparisons),
+    [property, income, expenses, metrics, borrower, reserves, creditImpact, loanComparisons]
   );
 
   const resetToDefaults = () => {
@@ -194,20 +201,26 @@ function App() {
 
         {/* Analysis Tab */}
         {activeTab === 'analysis' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="space-y-6">
-              <AffordabilityAssessment assessment={assessment} />
-              <InvestmentMetrics metrics={metrics} />
-            </div>
-            <div className="space-y-6">
-              <CashFlowAnalysis metrics={metrics} />
-              <ScenarioAnalysis
-                baseProperty={property}
-                income={income}
-                expenses={expenses}
-                closingCosts={closingCosts}
-                baseMetrics={metrics}
-              />
+          <div className="space-y-6">
+            {/* Approval Roadmap - Full Width at Top */}
+            <ApprovalRoadmap roadmap={approvalRoadmap} />
+
+            {/* Other Analysis Components */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-6">
+                <AffordabilityAssessment assessment={assessment} />
+                <InvestmentMetrics metrics={metrics} />
+              </div>
+              <div className="space-y-6">
+                <CashFlowAnalysis metrics={metrics} />
+                <ScenarioAnalysis
+                  baseProperty={property}
+                  income={income}
+                  expenses={expenses}
+                  closingCosts={closingCosts}
+                  baseMetrics={metrics}
+                />
+              </div>
             </div>
           </div>
         )}

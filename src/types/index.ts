@@ -147,3 +147,32 @@ export interface PropertyAnalysis {
   creditImpact?: CreditScoreImpact;
   loanComparisons?: LoanComparison[];
 }
+
+// Approval Roadmap types
+export type RecommendationPriority = 'critical' | 'high' | 'medium' | 'low';
+export type RecommendationCategory = 'dscr' | 'cash-flow' | 'reserves' | 'credit' | 'down-payment' | 'income' | 'expenses' | 'loan-product';
+
+export interface ApprovalRecommendation {
+  id: string;
+  category: RecommendationCategory;
+  priority: RecommendationPriority;
+  title: string;
+  issue: string;
+  currentValue: string;
+  targetValue: string;
+  action: string;
+  impact: string;
+  loanOfficerTalkingPoint: string;
+  isDealBreaker: boolean;
+}
+
+export interface ApprovalRoadmap {
+  overallStatus: 'approved' | 'likely' | 'possible' | 'unlikely' | 'not-qualified';
+  statusMessage: string;
+  dealBreakers: ApprovalRecommendation[];
+  highPriorityItems: ApprovalRecommendation[];
+  improvements: ApprovalRecommendation[];
+  strengths: string[];
+  bestLoanOption: string;
+  estimatedTimeToApproval: string;
+}

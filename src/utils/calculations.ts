@@ -9,6 +9,8 @@ import type {
   ReserveRequirements,
   CreditScoreImpact,
   LoanComparison,
+  ApprovalRecommendation,
+  ApprovalRoadmap,
 } from '../types';
 
 /**
@@ -502,6 +504,327 @@ export function generateLoanComparisons(
   });
 
   return comparisons;
+}
+
+/**
+ * Generate approval roadmap with prioritized recommendations
+ */
+export function generateApprovalRoadmap(
+  property: PropertyDetails,
+  income: IncomeDetails,
+  expenses: ExpenseDetails,
+  metrics: CalculatedMetrics,
+  borrower: BorrowerProfile,
+  reserves: ReserveRequirements,
+  creditImpact: CreditScoreImpact,
+  loanComparisons: LoanComparison[]
+): ApprovalRoadmap {
+  const recommendations: ApprovalRecommendation[] = [];
+  const strengths: string[] = [];
+
+  // Helper to generate unique IDs
+  let idCounter = 0;
+  const nextId = () => `rec-${++idCounter}`;
+
+  // Analyze DSCR
+  if (metrics.debtServiceCoverageRatio < 1.0) {
+    const targetDSCR = 1.25;
+    const currentDebtService = metrics.monthlyMortgagePayment * 12;
+    const requiredNOI = currentDebtService * targetDSCR;
+    const noiShortfall = requiredNOI - metrics.annualNetOperatingIncome;
+    const monthlyRentIncrease = Math.ceil(noiShortfall / 12);
+
+    // Calculate down payment to reach target DSCR
+    const targetMonthlyPayment = metrics.annualNetOperatingIncome / targetDSCR / 12;
+    const currentPayment = metrics.monthlyMortgagePayment;
+    const paymentReductionNeeded = currentPayment - targetMonthlyPayment;
+    const additionalDownPayment = paymentReductionNeeded > 0
+      ? Math.ceil((paymentReductionNeeded / currentPayment) * metrics.loanAmount)
+      : 0;
+
+    recommendations.push({
+      id: nextId(),
+      category: 'dscr',
+      priority: 'critical',
+      title: 'DSCR Below Minimum',
+      issue: 'Debt Service Coverage Ratio is below 1.0, meaning the property income does not cover the debt payments.',
+      currentValue: metrics.debtServiceCoverageRatio.toFixed(2),
+      targetValue: '1.25 (preferred)',
+      action: `Increase monthly rent by $${monthlyRentIncrease.toLocaleString()} OR add $${additionalDownPayment.toLocaleString()} to down payment`,
+      impact: 'Critical for loan approval - most lenders require minimum 1.0 DSCR',
+      loanOfficerTalkingPoint: 'The property\'s rental income needs to cover the mortgage payment. Let\'s look at either increasing the rent expectation based on market comps, or putting more money down to reduce the monthly payment.',
+      isDealBreaker: true,
+    });
+  } else if (metrics.debtServiceCoverageRatio < 1.25) {
+    const targetDSCR = 1.25;
+    const rentIncrease = Math.ceil(
+      ((targetDSCR * metrics.monthlyMortgagePayment * 12) - metrics.annualNetOperatingIncome) / 12
+    );
+
+    recommendations.push({
+      id: nextId(),
+      category: 'dscr',
+      priority: 'high',
+      title: 'DSCR Below Preferred Level',
+      issue: 'DSCR is acceptable but below the preferred 1.25 threshold.',
+      currentValue: metrics.debtServiceCoverageRatio.toFixed(2),
+      targetValue: '1.25+',
+      action: `Increase monthly rent by $${rentIncrease.toLocaleString()} to reach 1.25 DSCR`,
+      impact: 'Better rates and easier approval with DSCR above 1.25',
+      loanOfficerTalkingPoint: 'The numbers work, but we\'re on the lower end. If we can justify a slightly higher rent or reduce some expenses, it will strengthen the application.',
+      isDealBreaker: false,
+    });
+  } else {
+    strengths.push(`Strong DSCR of ${metrics.debtServiceCoverageRatio.toFixed(2)} exceeds lender requirements`);
+  }
+
+  // Analyze Cash Flow
+  if (metrics.monthlyCashFlow < 0) {
+    const breakEvenRent = Math.ceil(income.monthlyRent - metrics.monthlyCashFlow);
+
+    recommendations.push({
+      id: nextId(),
+      category: 'cash-flow',
+      priority: 'critical',
+      title: 'Negative Cash Flow',
+      issue: 'Property will lose money each month after all expenses and mortgage.',
+      currentValue: `$${metrics.monthlyCashFlow.toFixed(0)}/month`,
+      targetValue: '$200+/month positive',
+      action: `Increase rent to $${breakEvenRent.toLocaleString()}/month to break even, or reduce purchase price`,
+      impact: 'Negative cash flow means ongoing out-of-pocket costs',
+      loanOfficerTalkingPoint: 'At this price point, you\'ll be covering some costs out of pocket each month. Let\'s see if we can negotiate the price down or find a property with better rent potential.',
+      isDealBreaker: true,
+    });
+  } else if (metrics.monthlyCashFlow < 200) {
+    recommendations.push({
+      id: nextId(),
+      category: 'cash-flow',
+      priority: 'medium',
+      title: 'Thin Cash Flow Margins',
+      issue: 'Cash flow is positive but leaves little buffer for unexpected expenses.',
+      currentValue: `$${metrics.monthlyCashFlow.toFixed(0)}/month`,
+      targetValue: '$200+/month',
+      action: 'Consider negotiating lower purchase price or identifying expense reductions',
+      impact: 'Limited margin for vacancies or repairs',
+      loanOfficerTalkingPoint: 'The property cash flows, but the margin is thin. One unexpected repair or vacancy month could wipe out several months of profit.',
+      isDealBreaker: false,
+    });
+  } else {
+    strengths.push(`Healthy monthly cash flow of $${metrics.monthlyCashFlow.toFixed(0)}`);
+  }
+
+  // Analyze Reserves
+  if (!reserves.meetsRequirements) {
+    recommendations.push({
+      id: nextId(),
+      category: 'reserves',
+      priority: 'critical',
+      title: 'Insufficient Reserves',
+      issue: 'Liquid assets do not meet lender reserve requirements.',
+      currentValue: `$${reserves.currentLiquidAssets.toLocaleString()}`,
+      targetValue: `$${reserves.totalReserveRequired.toLocaleString()}`,
+      action: `Need additional $${reserves.reserveShortfall.toLocaleString()} in liquid assets before closing`,
+      impact: 'Loan will be denied without adequate reserves',
+      loanOfficerTalkingPoint: 'Lenders require you to have 6 months of payments in reserve after closing. You\'ll need to show these funds in your account.',
+      isDealBreaker: true,
+    });
+  } else {
+    const excessReserves = reserves.currentLiquidAssets - reserves.totalReserveRequired;
+    if (excessReserves > reserves.totalReserveRequired) {
+      strengths.push(`Strong reserves with $${excessReserves.toLocaleString()} excess liquidity`);
+    }
+  }
+
+  // Analyze Credit Score
+  if (borrower.creditScore < 620) {
+    recommendations.push({
+      id: nextId(),
+      category: 'credit',
+      priority: 'critical',
+      title: 'Credit Score Below Minimum',
+      issue: 'Most investment property lenders require minimum 620 credit score.',
+      currentValue: borrower.creditScore.toString(),
+      targetValue: '660+ (preferred)',
+      action: 'Focus on credit repair: pay down balances, dispute errors, wait for negative items to age',
+      impact: 'Loan denial likely without credit improvement',
+      loanOfficerTalkingPoint: 'Your credit score is currently below most lender minimums. Let\'s discuss a timeline to improve your score before applying.',
+      isDealBreaker: true,
+    });
+  } else if (borrower.creditScore < 700) {
+    const potentialSavings = Math.ceil(metrics.loanAmount * (creditImpact.rateAdjustment / 100) / 12);
+
+    recommendations.push({
+      id: nextId(),
+      category: 'credit',
+      priority: 'medium',
+      title: 'Credit Score Affecting Rate',
+      issue: 'Credit score qualifies but results in higher interest rate.',
+      currentValue: borrower.creditScore.toString(),
+      targetValue: '740+',
+      action: `Improving to 740+ could save approximately $${potentialSavings}/month`,
+      impact: `Current rate adjustment: +${creditImpact.rateAdjustment}%`,
+      loanOfficerTalkingPoint: 'You qualify, but a higher credit score would get you a better rate. Even a 40-point improvement could save you thousands over the life of the loan.',
+      isDealBreaker: false,
+    });
+  } else if (borrower.creditScore >= 760) {
+    strengths.push('Excellent credit score qualifies for best rates');
+  }
+
+  // Analyze Down Payment
+  if (property.downPaymentPercent < 20) {
+    const additionalNeeded = (20 - property.downPaymentPercent) / 100 * property.purchasePrice;
+
+    recommendations.push({
+      id: nextId(),
+      category: 'down-payment',
+      priority: 'critical',
+      title: 'Down Payment Below Minimum',
+      issue: 'Investment properties require minimum 20% down payment.',
+      currentValue: `${property.downPaymentPercent}%`,
+      targetValue: '20-25%',
+      action: `Need additional $${additionalNeeded.toLocaleString()} for 20% down payment`,
+      impact: 'Loan will be denied without adequate down payment',
+      loanOfficerTalkingPoint: 'Investment property loans require at least 20% down, sometimes 25%. This reduces the lender\'s risk since investment properties have higher default rates.',
+      isDealBreaker: true,
+    });
+  } else if (property.downPaymentPercent < 25 && borrower.creditScore < 700) {
+    const benefitOf25 = Math.ceil(
+      calculateMonthlyMortgage(
+        property.purchasePrice * 0.8,
+        property.interestRate,
+        property.loanTermYears
+      ) - calculateMonthlyMortgage(
+        property.purchasePrice * 0.75,
+        property.interestRate,
+        property.loanTermYears
+      )
+    );
+
+    recommendations.push({
+      id: nextId(),
+      category: 'down-payment',
+      priority: 'high',
+      title: 'Consider Higher Down Payment',
+      issue: 'With credit score below 700, 25% down payment provides better terms.',
+      currentValue: `${property.downPaymentPercent}%`,
+      targetValue: '25%',
+      action: `Increasing to 25% down would reduce payment by ~$${benefitOf25}/month and improve approval odds`,
+      impact: 'Better rates and improved DSCR',
+      loanOfficerTalkingPoint: 'Given your credit score, putting 25% down instead of 20% will help offset the rate and give you a stronger application.',
+      isDealBreaker: false,
+    });
+  } else if (property.downPaymentPercent >= 25) {
+    strengths.push('Strong down payment of 25%+ improves approval likelihood');
+  }
+
+  // Analyze expenses for potential reductions
+  if (expenses.propertyManagementPercent > 0 && metrics.monthlyCashFlow < 200) {
+    const pmSavings = income.monthlyRent * (expenses.propertyManagementPercent / 100);
+
+    recommendations.push({
+      id: nextId(),
+      category: 'expenses',
+      priority: 'low',
+      title: 'Self-Management Option',
+      issue: 'Property management fees reduce cash flow.',
+      currentValue: `${expenses.propertyManagementPercent}% ($${pmSavings.toFixed(0)}/month)`,
+      targetValue: '0% (self-manage)',
+      action: `Self-managing would add $${pmSavings.toFixed(0)}/month to cash flow`,
+      impact: 'Improves cash flow and DSCR',
+      loanOfficerTalkingPoint: 'If you\'re willing and able to manage the property yourself, you\'d save the management fee and improve your cash flow.',
+      isDealBreaker: false,
+    });
+  }
+
+  // Check vacancy rate assumption
+  if (income.vacancyRatePercent > 8) {
+    recommendations.push({
+      id: nextId(),
+      category: 'income',
+      priority: 'low',
+      title: 'High Vacancy Assumption',
+      issue: 'Vacancy rate may be higher than typical for the market.',
+      currentValue: `${income.vacancyRatePercent}%`,
+      targetValue: '5-8%',
+      action: 'Research local vacancy rates - typical markets are 5-8%',
+      impact: 'Lower vacancy assumption improves projected cash flow',
+      loanOfficerTalkingPoint: 'Your vacancy assumption is conservative. If the local market supports a lower rate, your actual returns may be better.',
+      isDealBreaker: false,
+    });
+  }
+
+  // Suggest best loan product
+  const qualifiedLoans = loanComparisons.filter(l => l.qualifies);
+  let bestLoanOption = 'No loan products currently qualify';
+
+  if (qualifiedLoans.length > 0) {
+    // Prefer conventional if qualified, then DSCR for self-employed
+    if (qualifiedLoans.some(l => l.loanType === 'conventional')) {
+      bestLoanOption = borrower.isSelfEmployed
+        ? 'DSCR Loan (no income verification needed for self-employed)'
+        : 'Conventional Investment Loan (best rates)';
+    } else if (qualifiedLoans.some(l => l.loanType === 'dscr')) {
+      bestLoanOption = 'DSCR Loan (no income verification required)';
+    } else {
+      bestLoanOption = 'Portfolio Loan (flexible underwriting)';
+    }
+  } else {
+    recommendations.push({
+      id: nextId(),
+      category: 'loan-product',
+      priority: 'critical',
+      title: 'No Loan Products Qualify',
+      issue: 'Current profile does not qualify for standard loan products.',
+      currentValue: 'Not qualified',
+      targetValue: 'Qualified for at least one product',
+      action: 'Address the critical issues above to qualify for financing',
+      impact: 'Cannot proceed without qualification',
+      loanOfficerTalkingPoint: 'We need to address some items before we can move forward with financing. Let\'s work through these one by one.',
+      isDealBreaker: true,
+    });
+  }
+
+  // Determine overall status
+  const dealBreakers = recommendations.filter(r => r.isDealBreaker);
+  const highPriorityItems = recommendations.filter(r => r.priority === 'high' && !r.isDealBreaker);
+  const improvements = recommendations.filter(r => (r.priority === 'medium' || r.priority === 'low') && !r.isDealBreaker);
+
+  let overallStatus: ApprovalRoadmap['overallStatus'];
+  let statusMessage: string;
+  let estimatedTimeToApproval: string;
+
+  if (dealBreakers.length === 0 && highPriorityItems.length === 0) {
+    overallStatus = 'approved';
+    statusMessage = 'This deal is ready for loan application. All key metrics meet lender requirements.';
+    estimatedTimeToApproval = 'Ready to apply - typically 30-45 days to close';
+  } else if (dealBreakers.length === 0) {
+    overallStatus = 'likely';
+    statusMessage = 'Strong candidate for approval with minor improvements possible.';
+    estimatedTimeToApproval = 'Can apply now - address improvements for better terms';
+  } else if (dealBreakers.length === 1) {
+    overallStatus = 'possible';
+    statusMessage = 'One critical issue needs resolution before applying.';
+    estimatedTimeToApproval = 'Address the critical issue first';
+  } else if (dealBreakers.length <= 3) {
+    overallStatus = 'unlikely';
+    statusMessage = 'Multiple issues need resolution. Focus on critical items first.';
+    estimatedTimeToApproval = 'Significant work needed before application';
+  } else {
+    overallStatus = 'not-qualified';
+    statusMessage = 'This deal requires substantial restructuring to be viable.';
+    estimatedTimeToApproval = 'Consider alternative properties or terms';
+  }
+
+  return {
+    overallStatus,
+    statusMessage,
+    dealBreakers,
+    highPriorityItems,
+    improvements,
+    strengths,
+    bestLoanOption,
+    estimatedTimeToApproval,
+  };
 }
 
 /**
