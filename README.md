@@ -116,3 +116,4 @@ Measures annual return on actual cash invested.
 ## License
 
 MIT License
+
